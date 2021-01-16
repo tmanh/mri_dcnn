@@ -74,7 +74,7 @@ class Dataset(object):
         # return augmented_data[:, :, :, :3], augmented_data[:, :, :, 3:], y
 
         # NOTE: remove the following lines, use the above in your case
-        y = (y == 2).astype(np.uint8)
+        y = (y != 1).astype(np.uint8)
         return augmented_data[:, :, :, :3], augmented_data[:, :, :, 3:], y
 
     def len(self):
@@ -289,9 +289,9 @@ def svm_stage_1(saved_name='svm'):
     fashion_mnist = tf.keras.datasets.fashion_mnist
     (train_images, train_labels), (test_images, test_labels) = fashion_mnist.load_data()
     train_images = train_images[:100, :, :]
-    train_labels = (train_labels[:100] == 2).astype(np.uint8)
+    train_labels = (train_labels[:100] != 1).astype(np.uint8)
     test_images = test_images[:100, :, :]
-    test_labels = (test_labels[:100] == 2).astype(np.uint8)
+    test_labels = (test_labels[:100] != 1).astype(np.uint8)
 
     # NOTE: I duplicate the process because this data only has one image input
     # so you have to modify the code to compute the features from each input image
@@ -367,9 +367,9 @@ def svm_stage_2_combine_1(cnn_train_merged_features='resnet50_train_merged_featu
     fashion_mnist = tf.keras.datasets.fashion_mnist
     (train_images, train_labels), (test_images, test_labels) = fashion_mnist.load_data()
     train_images = train_images[:100, :, :]
-    train_labels = (train_labels[:100] == 2).astype(np.uint8)
+    train_labels = (train_labels[:100] != 1).astype(np.uint8)
     test_images = test_images[:100, :, :]
-    test_labels = (test_labels[:100] == 2).astype(np.uint8)
+    test_labels = (test_labels[:100] != 1).astype(np.uint8)
 
     print('Compute hand-craft features')
     # NOTE: I duplicate the process because this data only has one image input
@@ -447,9 +447,9 @@ def svm_stage_2_combine_2(cnn_train_merged_features='resnet50_train_merged_featu
     fashion_mnist = tf.keras.datasets.fashion_mnist
     (train_images, train_labels), (test_images, test_labels) = fashion_mnist.load_data()
     train_images = train_images[:100, :, :]
-    train_labels = (train_labels[:100] == 2).astype(np.uint8)
+    train_labels = (train_labels[:100] != 1).astype(np.uint8)
     test_images = test_images[:100, :, :]
-    test_labels = (test_labels[:100] == 2).astype(np.uint8)
+    test_labels = (test_labels[:100] != 1).astype(np.uint8)
 
     print('Compute hand-craft features')
     # NOTE: I duplicate the process because this data only has one image input
@@ -525,9 +525,9 @@ def svm_stage_2_combine_3(cnn_train_predictions='resnet50_train_prediction.pkl',
     fashion_mnist = tf.keras.datasets.fashion_mnist
     (train_images, train_labels), (test_images, test_labels) = fashion_mnist.load_data()
     train_images = train_images[:100, :, :]
-    train_labels = (train_labels[:100] == 2).astype(np.uint8)
+    train_labels = (train_labels[:100] != 1).astype(np.uint8)
     test_images = test_images[:100, :, :]
-    test_labels = (test_labels[:100] == 2).astype(np.uint8)
+    test_labels = (test_labels[:100] != 1).astype(np.uint8)
 
     # merge the cnn features and hand-craft features
     train_features = np.concatenate([svm_train_predictions, cnn_train_predictions], axis=1)

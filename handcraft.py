@@ -1,7 +1,5 @@
-import scipy
 import numpy as np
 import mahotas as mt
-from haralick import haralick_features
 
 
 # NOTE: The image need to be delineated first as stated in the paper
@@ -51,13 +49,13 @@ def compute_handcraft_features(data):
 
     X4, Y4 = np.meshgrid(x4, y4)
 
-    #Find the fourth central moment
+    # Find the fourth central moment
     m4x = np.sum(data * X4) / np.sum(data)
     m4y = np.sum(data * Y4) / np.sum(data)
 
-    #Kurtosis is the fourth central moment divided by SD to the fourth power
-    kx = m4x /sx ** 4
-    ky = m4y /sy ** 4
+    # Kurtosis is the fourth central moment divided by SD to the fourth power
+    kx = m4x / sx ** 4
+    ky = m4y / sy ** 4
 
     return np.array([cx, cy, sx, sy, skx, sky, kx, ky], dtype=np.float32)
 
