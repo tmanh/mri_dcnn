@@ -9,6 +9,8 @@ This is the implementation of the paper: Automated diagnosis of prostate cancer 
 > conda install scikit-image
 > pip install pystackreg
 > pip install tensorflow-gpu (or tensorflow)
+> conda install -c conda-forge scikit-learn
+> pip install mahotas
 
 ## Preprocessing
 
@@ -16,3 +18,5 @@ The processing of the paper "Automated diagnosis of prostate cancer in multi-par
 ## Data augmentation
 
 The data augmentation code is in [utils file](./utils.py) including both non-rigid (data_augmentation_non_rigid) and rigid (data_augmentation_rigid) appoaches. The code is implemented with Tensorflow (v2.4).
+
+# Network implementation

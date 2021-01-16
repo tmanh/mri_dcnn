@@ -27,7 +27,7 @@ def create_stem(name, modality='vgg16', weights='imagenet'):
 
 
 def create_network(image_size, image_dim, n_classes=2, weights='imagenet', classifier_activation='softmax', modality='resnet50', fusion_mode='paper', combine_mode='c1', training=True):
-    """This function is used to create the CNN for the deep network.
+    """This function is used to create the deep network.
 
     Args:
         :param image_size: the size of the input image.
@@ -102,7 +102,7 @@ def create_network(image_size, image_dim, n_classes=2, weights='imagenet', class
 
         cnn_x1 = branch_1(input_1)  # extract features by the base nets (ADC)
 
-        x1 = keras.layers.Flatten(name='flatten')(cnn_x1))                                                       # reshape the features maps from N x H x W x C to N x (H * W * C)
+        x1 = keras.layers.Flatten(name='flatten')(cnn_x1)                                                       # reshape the features maps from N x H x W x C to N x (H * W * C)
         x1 = keras.layers.Dense(n_feats_dense_1, activation='relu', name='fc1_x1')(x1)                           # apply fc layer
         predict_1 = keras.layers.Dense(n_classes, activation=classifier_activation, name='classification')(x1)   # classification layers (T2WI branch)
 
