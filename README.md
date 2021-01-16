@@ -35,6 +35,12 @@ svm_stage_1()                                                                   
 svm_stage_2_combine_3()                                                                               # run svm stage-2 with combine-3 to get the final results
 ```
 
+Then run the code by:
+
+```
+python main.py
+```
+
 The data used in this implementation is just an example, not a real MRI data. You have to modify the code for the actual MRI data. Please find all the ```NOTE``` in the code to modify.
 
 ## Directory structures

@@ -15,6 +15,8 @@ from handcraft import compute_handcraft_features, compute_handcraft_features, co
 
 
 class Dataset(object):
+    #  NOTE: use_rigid=False, use_non_rigid=True
+    # change this to modify the data augmentation
     def __init__(self, image1_path, image2_path, label_path, training=True, use_rigid=False, use_non_rigid=True):
         """Init the dataset handler
 
