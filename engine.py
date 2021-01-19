@@ -1,5 +1,8 @@
+import os
+import glob
 import pickle
 
+import cv2
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
@@ -17,27 +20,30 @@ from handcraft import compute_handcraft_features, compute_handcraft_features, co
 class Dataset(object):
     #  NOTE: use_rigid=False, use_non_rigid=True
     # change this to modify the data augmentation
-    def __init__(self, image1_path, image2_path, label_path, training=True, use_rigid=False, use_non_rigid=True):
+    def __init__(self, adc_path, t2wi_path, label_path, training=True, use_rigid=True, use_non_rigid=True):
         """Init the dataset handler
 
-        :param image1_path: list of the first type of images. (ADC)
-        :param image2_path: list of the second type of images. (T2WI)
+        :param adc_path: list of the first type of images. (ADC)
+        :param t2wi_path: list of the second type of images. (T2WI)
         :param label_path: list of the label
         :param use_rigid: if you want to apply rigid transformation in data augmentation.
         :param use_non_rigid: if you want to apply non-rigid deformation in data augmentation.
         """
-        # NOTE: you have to modify the code to read your data, the below variables are the ones you need to modify
-        # image1_path, image2_path, label_path
 
-        # there is two ways, one is to load whole data to the memory
-        # one is to load file-by-file. In this case, I load all the data to memory.
-        # You can modify the path as you wish later. In this case, I just load the mnist dataset.
-        fashion_mnist = tf.keras.datasets.fashion_mnist
-        (self.train_images, self.train_labels), (self.test_images, self.test_labels) = fashion_mnist.load_data()
-        self.train_images = self.train_images[:100, :, :]
-        self.train_labels = self.train_labels[:100]
-        self.test_images = self.test_images[:100, :, :]
-        self.test_labels = self.test_labels[:100]
+        image_format = '*.png'  # to read the png images in the folder
+
+        # read the all the image in image1_path
+        self.list_adc = glob.glob(os.path.join(adc_path, image_format))
+        self.list_adc.sort()
+
+        # read the all the image in image1_path
+        self.list_t2wi = glob.glob(os.path.join(t2wi_path, image_format))
+        self.list_t2wi.sort()
+
+        # read the label
+        f = open(label_path, 'r')
+        self.list_labels = [int(i) for i in f]
+        f.close()
 
         # as mentioned earlier, these variables are used for the data augmentation
         self.use_rigid = use_rigid
@@ -52,15 +58,14 @@ class Dataset(object):
         :param index: the index of the data you want to get.
         """
 
-        # if this is for training, just load the the from training list
-        if self.training:
-            x1 = self.train_images[index]  # the first list of images (ADC)
-            x2 = self.train_images[index]  # the second list of images (T2WI)
-            y = self.train_labels[index]   # the list of labels
-        else:  # if this is for testing, just load the the from testing list
-            x1 = self.test_images[index]  # the first list of images (ADC)
-            x2 = self.test_images[index]  # the second list of images (T2WI)
-            y = self.test_labels[index]   # the list of labels
+        # get the image paths and the label
+        x1 = self.list_adc[index]  # the first list of images (ADC)
+        x2 = self.list_t2wi[index]  # the second list of images (T2WI)
+        y = self.list_labels[index]   # the list of labels
+
+        # read the images from files
+        x1 = cv2.imread(x1, 0)
+        x2 = cv2.imread(x2, 0)
         
         height, width = x1.shape  # get the size of the image
         x1 = normalize(x1.reshape(height, width, 1))  # apply the normalization (norm to range [0, 1])
@@ -72,25 +77,16 @@ class Dataset(object):
         # apply data augmentation
         augmented_data = data_augmentation(np.concatenate([x1, x2], axis=2), use_rigid=self.use_rigid, use_non_rigid=self.use_non_rigid)
 
-        # NOTE: because the data I used has multiple classes, so I have to modified it a bit, use the commented code below instead
-        # return augmented_data[:, :, :, :3], augmented_data[:, :, :, 3:], y
-
-        # NOTE: remove the following lines, use the above in your case
-        y = (y != 1).astype(np.uint8)
-        return augmented_data[:, :, :, :3], augmented_data[:, :, :, 3:], y
+        return augmented_data[:, :, :, :3], augmented_data[:, :, :, 3:], keras.utils.to_categorical(y, num_classes=2)
 
     def len(self):
         """This function is used to get the size of the dataset (number of samples)
         """
-        # if this is for training, get the size of the training set
-        if self.training:
-            return self.train_images.shape[0]
-        else:  # if this is for testing, get the size of the testing set
-            return self.test_images.shape[0]
+        return len(self.list_labels)
 
 
 class DataLoader(keras.utils.Sequence):
-    def __init__(self, image1_path, image2_path, label_path, fusion_mode, batch_size=32, dim=(224, 224), n_channels=3, shuffle=True, training=True, use_rigid=False, use_non_rigid=True):
+    def __init__(self, image1_path, image2_path, label_path, fusion_mode, batch_size=32, dim=(224, 224), n_channels=3, shuffle=True, training=True, use_rigid=True, use_non_rigid=True):
         """Init the dataset loader
 
         :param image1_path: list of the first type of images. (ADC)
@@ -164,41 +160,43 @@ class DataLoader(keras.utils.Sequence):
             return [X1, X2], (Y, Y, Y)
 
 
-def train(modality='resnet50', combine_mode='c1', fusion_mode='paper', saved_name='pretrained'):
+def train(adc_path, t2wi_path, label_path, modality='resnet50', combine_mode='c1', fusion_mode='paper', saved_name='pretrained'):
     """This function is used to train the CNN for the deep network.
 
     Args:
+        :param adc_path: list of the first type of images. (ADC)
+        :param t2wi_path: list of the second type of images. (T2WI)
+        :param label_path: list of the label
         :param modality: the modality to use (resnet50, vgg16, googlenet).
         :param fusion_mode: the fusion mode to use (concatenate, sum, paper, adc, t2wi) (using concatenation, element-wise sum, and the proposed one in the paper, only use adc, only use t2wi).
         :param combine_mode: c1, c2, c3. c1 just concat, c2 pca then concat, c3 concat prediction.
         :param saved_name: the name to save the model.
     """
-    n_classes = 1  # number of the classes
-    batch_size = 2  # batch size
+    batch_size = 1  # batch size
     n_epochs = 500  # the number of epochs
 
     # make an instance of data loader
     # NOTE: fill in the paths to your data
-    training_generator = DataLoader(None, None, None, fusion_mode=fusion_mode, batch_size=batch_size)
+    training_generator = DataLoader(adc_path, t2wi_path, label_path, fusion_mode=fusion_mode, batch_size=batch_size)
 
     # create the network
-    model = create_network(modality=modality, combine_mode=combine_mode, fusion_mode=fusion_mode, image_size=224, image_dim=3, n_classes=n_classes, training=True)
+    model = create_network(modality=modality, combine_mode=combine_mode, fusion_mode=fusion_mode, image_size=224, image_dim=3, training=True)
 
     # if the fusion strategy is to use concatenation or element-wise sum, or just using only adc or t2wi
     # the only loss function we need is categorical_crossentropy, 
     if fusion_mode in ['sum', 'concatenate', 'adc', 't2wi']:
-        model.compile(optimizer='adam', loss=tf.keras.losses.CategoricalCrossentropy())
+        model.compile(optimizer='adam', loss='categorical_crossentropy')
     else:  # if it is the third strategy in the paper, we also need the similarity loss
         # define list of lost
         losses = {
-            "tf.math.sigmoid": "categorical_crossentropy",
-            "tf.math.sigmoid_1": "categorical_crossentropy",
-            "tf.__operators__.add": "categorical_crossentropy",
-            "tf.math.reduce_mean_1": similarity_loss,
+            'classification_1': 'categorical_crossentropy',
+            'classification_2': 'categorical_crossentropy',
+            'classification': 'categorical_crossentropy',
+            'tf.math.reduce_mean_1': similarity_loss,
         }
 
         # define list of weights for the lost
-        loss_weights = {"tf.math.sigmoid": 1.0, "tf.math.sigmoid_1": 1.0, "tf.__operators__.add": 1.0, "tf.math.reduce_mean_1": 1.0}
+        loss_weights = {"classification_1": 1.0, "classification_2": 1.0, "classification": 1.0, "tf.math.reduce_mean_1": 1.0}
 
         # compille the model (keras thing)
         model.compile(optimizer='adam', loss=losses, loss_weights=loss_weights)
@@ -208,12 +206,12 @@ def train(modality='resnet50', combine_mode='c1', fusion_mode='paper', saved_nam
     model.save_weights(saved_name + '_' + modality + '.h5')         # save at the end of the training
 
 
-def predict(image1_path, image2_path, label_path, modality='resnet50', combine_mode='c1', fusion_mode='paper', saved_model_name='pretrained', mode='train'):
+def predict(adc_path, t2wi_path, label_path, modality='resnet50', combine_mode='c1', fusion_mode='paper', saved_model_name='pretrained', mode='train'):
     """This function is used to obtain all the predictions and merged functions. This function only work on resnet50.
 
     Args:
-        :param image1_path: list of the first type of images. (ADC)
-        :param image2_path: list of the second type of images. (T2WI)
+        :param adc_path: list of the first type of images. (ADC)
+        :param t2wi_path: list of the second type of images. (T2WI)
         :param label_path: list of the label
         :param modality: the modality to use (resnet50, vgg16, googlenet).
         :param fusion_mode: the fusion mode to use (concatenate, sum, paper, adc, t2wi) (using concatenation, element-wise sum, and the proposed one in the paper, only use adc, only use t2wi).
@@ -226,14 +224,14 @@ def predict(image1_path, image2_path, label_path, modality='resnet50', combine_m
     batch_size = 1
 
     if mode == 'train':
-        model = create_network(modality=modality, combine_mode=combine_mode, fusion_mode=fusion_mode, image_size=224, image_dim=3, n_classes=n_classes, training=True)
+        model = create_network(modality=modality, combine_mode=combine_mode, fusion_mode=fusion_mode, image_size=224, image_dim=3, training=True)
     else:
-        model = create_network(modality=modality, combine_mode=combine_mode, fusion_mode=fusion_mode, image_size=224, image_dim=3, n_classes=n_classes, training=False)
+        model = create_network(modality=modality, combine_mode=combine_mode, fusion_mode=fusion_mode, image_size=224, image_dim=3, training=False)
     model.load_weights(saved_model_name + '_' + modality + '.h5')
     model.compile()
 
     # Train model on dataset
-    testing_generator = DataLoader(image1_path, image2_path, label_path, fusion_mode=fusion_mode, batch_size=batch_size, shuffle=False)
+    testing_generator = DataLoader(adc_path, t2wi_path, label_path, fusion_mode=fusion_mode, batch_size=batch_size, shuffle=False, use_rigid=False, use_non_rigid=False)
 
     predictions = []
     merged_features = []
@@ -256,10 +254,13 @@ def predict(image1_path, image2_path, label_path, modality='resnet50', combine_m
     f2.close()
 
 
-def test(modality='resnet50', combine_mode='c1', fusion_mode='paper', saved_name='pretrained'):
+def test(adc_path, t2wi_path, label_path, modality='resnet50', combine_mode='c1', fusion_mode='paper', saved_name='pretrained'):
     """This function is used to test model the CNN.
 
     Args:
+        :param adc_path: list of the first type of images. (ADC)
+        :param t2wi_path: list of the second type of images. (T2WI)
+        :param label_path: list of the label
         :param modality: the modality to use (resnet50, vgg16, googlenet).
         :param fusion_mode: the fusion mode to use (concatenate, sum, paper, adc, t2wi) (using concatenation, element-wise sum, and the proposed one in the paper, only use adc, only use t2wi).
         :param combine_mode: c1, c2, c3. c1 just concat, c2 pca then concat, c3 concat prediction.
@@ -268,63 +269,97 @@ def test(modality='resnet50', combine_mode='c1', fusion_mode='paper', saved_name
     n_classes = 1
     batch_size = 2
 
-    model = create_network(modality=modality, combine_mode=combine_mode, fusion_mode=fusion_mode, image_size=224, image_dim=3, n_classes=n_classes, training=False)
+    model = create_network(modality=modality, combine_mode=combine_mode, fusion_mode=fusion_mode, image_size=224, image_dim=3, training=False)
     model.load_weights(saved_name + '_' + modality + '.h5')
     model.compile(metrics=['accuracy', precision_m, recall_m])
 
     # Train model on dataset
-    testing_generator = DataLoader(None, None, None, fusion_mode=fusion_mode, batch_size=batch_size, shuffle=False)
+    testing_generator = DataLoader(adc_path, t2wi_path, label_path, fusion_mode=fusion_mode, batch_size=batch_size, shuffle=False, use_rigid=False, use_non_rigid=False)
     model.evaluate(x=testing_generator, verbose=True)
 
     return model
 
 
-def svm_stage_1(saved_name='svm'):
+def svm_stage_1(adc_train_path, t2wi_train_path, label_train_path, adc_test_path, t2wi_test_path, label_test_path, saved_name='svm'):
     """This function is used to train and get the output results of the SVM.
 
     Args:
+        :param adc_train_path: the path to adc images (train data)
+        :param t2wi_train_path: the path to t2wi images (train data)
+        :param label_train_path: the path label file (train data)
+        :param adc_test_path: the path to adc images (test data)
+        :param t2wi_test_path: the path to t2wi images (test data)
+        :param label_test_path: the path label file (test data)
         :param saved_name: the name to save the model.
     """
+    print('Load data')
+    image_format = '*.png'  # to read the png images in the folder
 
-    # load all the data to memory.
-    # NOTE: you have to modify this to read the data
-    fashion_mnist = tf.keras.datasets.fashion_mnist
-    (train_images, train_labels), (test_images, test_labels) = fashion_mnist.load_data()
-    train_images = train_images[:100, :, :]
-    train_labels = (train_labels[:100] != 1).astype(np.uint8)
-    test_images = test_images[:100, :, :]
-    test_labels = (test_labels[:100] != 1).astype(np.uint8)
+    # read the all the image in image1_path
+    list_train_adc = glob.glob(os.path.join(adc_train_path, image_format))
+    list_train_adc.sort()
 
-    # NOTE: I duplicate the process because this data only has one image input
-    # so you have to modify the code to compute the features from each input image
-    # then, concat them
+    # read the all the image in image1_path
+    list_train_t2wi = glob.glob(os.path.join(t2wi_train_path, image_format))
+    list_train_t2wi.sort()
+
+    # read the label
+    f = open(label_train_path, 'r')
+    list_train_labels = np.array([int(i) for i in f])
+    f.close()
+
+    # read the all the image in image1_path
+    list_test_adc = glob.glob(os.path.join(adc_test_path, image_format))
+    list_test_adc.sort()
+
+    # read the all the image in image1_path
+    list_test_t2wi = glob.glob(os.path.join(t2wi_test_path, image_format))
+    list_test_t2wi.sort()
+
+    # read the label
+    f = open(label_test_path, 'r')
+    list_test_labels = np.array([int(i) for i in f])
+    f.close()
+
+    # extract handcrafted features
+    print('Extract handcrafted features')
     train_features = []
-    for i in range(train_images.shape[0]):
-        first_order_features = compute_handcraft_features(train_images[i])
-        second_order_features = compute_haralick_features(train_images[i])
+    for i in range(len(list_train_adc)):
+        adc = cv2.imread(list_train_adc[i], 0)
+        first_order_adc = compute_handcraft_features(adc)
+        second_order_adc = compute_haralick_features(adc)
+
+        t2wi = cv2.imread(list_train_t2wi[i], 0)
+        first_order_t2wi = compute_handcraft_features(t2wi)
+        second_order_t2wi = compute_haralick_features(t2wi)
         
-        features = np.concatenate([first_order_features, second_order_features, first_order_features, second_order_features])
+        features = np.concatenate([first_order_adc, second_order_adc, first_order_t2wi, second_order_t2wi])
         train_features.append(features)
 
     test_features = []
-    for i in range(test_images.shape[0]):
-        first_order_features = compute_handcraft_features(test_images[i])
-        second_order_features = compute_haralick_features(test_images[i])
+    for i in range(len(list_test_adc)):
+        adc = cv2.imread(list_test_adc[i], 0)
+        first_order_adc = compute_handcraft_features(adc)
+        second_order_adc = compute_haralick_features(adc)
 
-        features = np.concatenate([first_order_features, second_order_features, first_order_features, second_order_features])
+        t2wi = cv2.imread(list_test_t2wi[i], 0)
+        first_order_t2wi = compute_handcraft_features(t2wi)
+        second_order_t2wi = compute_haralick_features(t2wi)
+
+        features = np.concatenate([first_order_adc, second_order_adc, first_order_t2wi, second_order_t2wi])
         test_features.append(features)
 
     # optimize by SVM
     print('Optimization started.')
     estimator = SVR(kernel="linear", max_iter=200000)  # init svm
     selector = RFE(estimator, n_features_to_select=100, step=2)  # init rfe
-    selector = selector.fit(train_features, train_labels)  # optimize
+    selector = selector.fit(train_features, list_train_labels)  # optimize
     print('Optimization ended.')
     train_predicted = selector.predict(train_features)  # predict the output on test set
     test_predicted = selector.predict(test_features)  # predict the output on test set
 
-    precision_results = precision(test_labels, test_predicted)
-    recall_results = recall(test_labels, test_predicted)
+    precision_results = precision(list_test_labels, test_predicted)
+    recall_results = recall(list_test_labels, test_predicted)
 
     print('Precision: {} - Recall: {}'.format(precision_results, recall_results))
 
@@ -341,7 +376,7 @@ def svm_stage_1(saved_name='svm'):
     f.close()
 
 
-def svm_stage_2_combine_1(cnn_train_merged_features='resnet50_train_merged_features.pkl', cnn_test_merged_features='resnet50_test_merged_features.pkl'):
+def svm_stage_2_combine_1(adc_train_path, t2wi_train_path, label_train_path, adc_test_path, t2wi_test_path, label_test_path, cnn_train_merged_features='resnet50_train_merged_features.pkl', cnn_test_merged_features='resnet50_test_merged_features.pkl'):
     """This function is used to train and get the output results of the SVM (stage 2).
     For this strategy, the paper suggested to concat the features of the CNN and the features of stage-1 SVM instead of using the results of stage-1 SVM.
 
@@ -363,38 +398,62 @@ def svm_stage_2_combine_1(cnn_train_merged_features='resnet50_train_merged_featu
     f.close()
 
     print('Load data')
+    image_format = '*.png'  # to read the png images in the folder
 
-    # load all the data to memory.
-    # NOTE: you have to modify this to read the data
-    fashion_mnist = tf.keras.datasets.fashion_mnist
-    (train_images, train_labels), (test_images, test_labels) = fashion_mnist.load_data()
-    train_images = train_images[:100, :, :]
-    train_labels = (train_labels[:100] != 1).astype(np.uint8)
-    test_images = test_images[:100, :, :]
-    test_labels = (test_labels[:100] != 1).astype(np.uint8)
+    # read the all the image in image1_path
+    list_train_adc = glob.glob(os.path.join(adc_train_path, image_format))
+    list_train_adc.sort()
 
+    # read the all the image in image1_path
+    list_train_t2wi = glob.glob(os.path.join(t2wi_train_path, image_format))
+    list_train_t2wi.sort()
+
+    # read the label
+    f = open(label_train_path, 'r')
+    list_train_labels = np.array([int(i) for i in f])
+    f.close()
+
+    # read the all the image in image1_path
+    list_test_adc = glob.glob(os.path.join(adc_test_path, image_format))
+    list_test_adc.sort()
+
+    # read the all the image in image1_path
+    list_test_t2wi = glob.glob(os.path.join(t2wi_test_path, image_format))
+    list_test_t2wi.sort()
+
+    # read the label
+    f = open(label_test_path, 'r')
+    list_test_labels = np.array([int(i) for i in f])
+    f.close()
+
+    # extract handcrafted features
     print('Compute hand-craft features')
-    # NOTE: I duplicate the process because this data only has one image input
-    # so you have to modify the code to compute the features from each input image
-    # then, concat them
     train_features = []
-    for i in range(train_images.shape[0]):
-        first_order_features = compute_handcraft_features(train_images[i])
-        second_order_features = compute_haralick_features(train_images[i])
+    for i in range(len(list_train_adc)):
+        adc = cv2.imread(list_train_adc[i], 0)
+        first_order_adc = compute_handcraft_features(adc)
+        second_order_adc = compute_haralick_features(adc)
+
+        t2wi = cv2.imread(list_train_t2wi[i], 0)
+        first_order_t2wi = compute_handcraft_features(t2wi)
+        second_order_t2wi = compute_haralick_features(t2wi)
         
-        features = np.concatenate([first_order_features, second_order_features, first_order_features, second_order_features])
+        features = np.concatenate([first_order_adc, second_order_adc, first_order_t2wi, second_order_t2wi])
         train_features.append(features)
 
     test_features = []
-    for i in range(test_images.shape[0]):
-        first_order_features = compute_handcraft_features(test_images[i])
-        second_order_features = compute_haralick_features(test_images[i])
+    for i in range(len(list_test_adc)):
+        adc = cv2.imread(list_test_adc[i], 0)
+        first_order_adc = compute_handcraft_features(adc)
+        second_order_adc = compute_haralick_features(adc)
 
-        features = np.concatenate([first_order_features, second_order_features, first_order_features, second_order_features])
+        t2wi = cv2.imread(list_test_t2wi[i], 0)
+        first_order_t2wi = compute_handcraft_features(t2wi)
+        second_order_t2wi = compute_haralick_features(t2wi)
+
+        features = np.concatenate([first_order_adc, second_order_adc, first_order_t2wi, second_order_t2wi])
         test_features.append(features)
-    print(cnn_train_merged_features.shape, cnn_test_merged_features.shape)
 
-    print('Compute hand-craft features')
     # merge the cnn features and hand-craft features
     train_features = np.concatenate([train_features, cnn_train_merged_features], axis=1)
     test_features = np.concatenate([test_features, cnn_test_merged_features], axis=1)
@@ -403,17 +462,17 @@ def svm_stage_2_combine_1(cnn_train_merged_features='resnet50_train_merged_featu
     print('Optimization started.')
     estimator = SVR(kernel="linear", max_iter=200)  # init svm
     selector = RFE(estimator, n_features_to_select=100, step=2)  # init rfe
-    selector = selector.fit(train_features, train_labels)  # optimize
+    selector = selector.fit(train_features, list_train_labels)  # optimize
     print('Optimization ended.')
     test_predicted = selector.predict(test_features)  # predict the output on test set
 
-    precision_results = precision(test_labels, test_predicted)
-    recall_results = recall(test_labels, test_predicted)
+    precision_results = precision(list_test_labels, test_predicted)
+    recall_results = recall(list_test_labels, test_predicted)
 
     print('Precision: {} - Recall: {}'.format(precision_results, recall_results))
 
 
-def svm_stage_2_combine_2(cnn_train_merged_features='resnet50_train_merged_features.pkl', cnn_test_merged_features='resnet50_test_merged_features.pkl'):
+def svm_stage_2_combine_2(adc_train_path, t2wi_train_path, label_train_path, adc_test_path, t2wi_test_path, label_test_path, cnn_train_merged_features='resnet50_train_merged_features.pkl', cnn_test_merged_features='resnet50_test_merged_features.pkl'):
     """This function is used to train and get the output results of the SVM (stage 2).
     For this strategy, the paper suggested to concat the features of the CNN and the features of stage-1 SVM instead of using the results of stage-1 SVM.
     Note, this strategy apply PCA on CNN features before the concatenation.
@@ -439,38 +498,65 @@ def svm_stage_2_combine_2(cnn_train_merged_features='resnet50_train_merged_featu
     # a small number of components
     print('Apply PCA on CNN features')
     # apply pca
-    pca = PCA(n_components=50, svd_solver='full')
+    pca = PCA(n_components=5, svd_solver='full')
     cnn_train_merged_features = pca.fit_transform(cnn_train_merged_features)
     cnn_test_merged_features = pca.transform(cnn_test_merged_features)
 
     print('Load data')
-    # load all the data to memory.
-    # NOTE: you have to modify this to read the data
-    fashion_mnist = tf.keras.datasets.fashion_mnist
-    (train_images, train_labels), (test_images, test_labels) = fashion_mnist.load_data()
-    train_images = train_images[:100, :, :]
-    train_labels = (train_labels[:100] != 1).astype(np.uint8)
-    test_images = test_images[:100, :, :]
-    test_labels = (test_labels[:100] != 1).astype(np.uint8)
+    image_format = '*.png'  # to read the png images in the folder
 
+    # read the all the image in image1_path
+    list_train_adc = glob.glob(os.path.join(adc_train_path, image_format))
+    list_train_adc.sort()
+
+    # read the all the image in image1_path
+    list_train_t2wi = glob.glob(os.path.join(t2wi_train_path, image_format))
+    list_train_t2wi.sort()
+
+    # read the label
+    f = open(label_train_path, 'r')
+    list_train_labels = np.array([int(i) for i in f])
+    f.close()
+
+    # read the all the image in image1_path
+    list_test_adc = glob.glob(os.path.join(adc_test_path, image_format))
+    list_test_adc.sort()
+
+    # read the all the image in image1_path
+    list_test_t2wi = glob.glob(os.path.join(t2wi_test_path, image_format))
+    list_test_t2wi.sort()
+
+    # read the label
+    f = open(label_test_path, 'r')
+    list_test_labels = np.array([int(i) for i in f])
+    f.close()
+
+    # extract handcrafted features
     print('Compute hand-craft features')
-    # NOTE: I duplicate the process because this data only has one image input
-    # so you have to modify the code to compute the features from each input image
-    # then, concat them
     train_features = []
-    for i in range(train_images.shape[0]):
-        first_order_features = compute_handcraft_features(train_images[i])
-        second_order_features = compute_haralick_features(train_images[i])
+    for i in range(len(list_train_adc)):
+        adc = cv2.imread(list_train_adc[i], 0)
+        first_order_adc = compute_handcraft_features(adc)
+        second_order_adc = compute_haralick_features(adc)
+
+        t2wi = cv2.imread(list_train_t2wi[i], 0)
+        first_order_t2wi = compute_handcraft_features(t2wi)
+        second_order_t2wi = compute_haralick_features(t2wi)
         
-        features = np.concatenate([first_order_features, second_order_features, first_order_features, second_order_features])
+        features = np.concatenate([first_order_adc, second_order_adc, first_order_t2wi, second_order_t2wi])
         train_features.append(features)
 
     test_features = []
-    for i in range(test_images.shape[0]):
-        first_order_features = compute_handcraft_features(test_images[i])
-        second_order_features = compute_haralick_features(test_images[i])
+    for i in range(len(list_test_adc)):
+        adc = cv2.imread(list_test_adc[i], 0)
+        first_order_adc = compute_handcraft_features(adc)
+        second_order_adc = compute_haralick_features(adc)
 
-        features = np.concatenate([first_order_features, second_order_features, first_order_features, second_order_features])
+        t2wi = cv2.imread(list_test_t2wi[i], 0)
+        first_order_t2wi = compute_handcraft_features(t2wi)
+        second_order_t2wi = compute_haralick_features(t2wi)
+
+        features = np.concatenate([first_order_adc, second_order_adc, first_order_t2wi, second_order_t2wi])
         test_features.append(features)
 
     # merge the cnn features and hand-craft features
@@ -481,17 +567,17 @@ def svm_stage_2_combine_2(cnn_train_merged_features='resnet50_train_merged_featu
     print('Optimization started.')
     estimator = SVR(kernel="linear", max_iter=200000)  # init svm
     selector = RFE(estimator, n_features_to_select=100, step=2)  # init rfe
-    selector = selector.fit(train_features, train_labels)  # optimize
+    selector = selector.fit(train_features, list_train_labels)  # optimize
     print('Optimization ended.')
     test_predicted = selector.predict(test_features)  # predict the output on test set
 
-    precision_results = precision(test_labels, test_predicted)
-    recall_results = recall(test_labels, test_predicted)
+    precision_results = precision(list_test_labels, test_predicted)
+    recall_results = recall(list_test_labels, test_predicted)
 
     print('Precision: {} - Recall: {}'.format(precision_results, recall_results))
 
 
-def svm_stage_2_combine_3(cnn_train_predictions='resnet50_train_prediction.pkl', cnn_test_predictions='resnet50_test_prediction.pkl', svm_train_predictions='svm_train_prediction.pkl', svm_test_predictions='svm_test_prediction.pkl'):
+def svm_stage_2_combine_3(label_train_path, label_test_path, cnn_train_predictions='resnet50_train_prediction.pkl', cnn_test_predictions='resnet50_test_prediction.pkl', svm_train_predictions='svm_train_prediction.pkl', svm_test_predictions='svm_test_prediction.pkl'):
     """This function is used to train and get the output results of the SVM (stage 2).
     For this strategy, the paper suggested to concat the prediction of the CNN and the prediction of stage-1 SVM.
 
@@ -501,14 +587,12 @@ def svm_stage_2_combine_3(cnn_train_predictions='resnet50_train_prediction.pkl',
     print('Read predictions from the CNN and SVM stage-1')
     # load cnn predictions on train data
     f = open(cnn_train_predictions, 'rb')
-    cnn_train_predictions = pickle.load(f)
-    cnn_train_predictions = cnn_train_predictions.reshape((-1, 1))
+    cnn_train_predictions = pickle.load(f).reshape((-1, 2))
     f.close()
 
     # load cnn predictions on test data
     f = open(cnn_test_predictions, 'rb')
-    cnn_test_predictions = pickle.load(f)
-    cnn_test_predictions = cnn_test_predictions.reshape((-1, 1))
+    cnn_test_predictions = pickle.load(f).reshape((-1, 2))
     f.close()
 
     # load svm predictions on train data
@@ -521,15 +605,18 @@ def svm_stage_2_combine_3(cnn_train_predictions='resnet50_train_prediction.pkl',
     svm_test_predictions = pickle.load(f).reshape((-1, 1))
     f.close()
 
-    print('Read data')
-    # load all the data to memory.
-    # NOTE: you have to modify this to read the data
-    fashion_mnist = tf.keras.datasets.fashion_mnist
-    (train_images, train_labels), (test_images, test_labels) = fashion_mnist.load_data()
-    train_images = train_images[:100, :, :]
-    train_labels = (train_labels[:100] != 1).astype(np.uint8)
-    test_images = test_images[:100, :, :]
-    test_labels = (test_labels[:100] != 1).astype(np.uint8)
+    print('Load data')
+    image_format = '*.png'  # to read the png images in the folder
+
+    # read the label
+    f = open(label_train_path, 'r')
+    list_train_labels = np.array([int(i) for i in f])
+    f.close()
+
+    # read the label
+    f = open(label_test_path, 'r')
+    list_test_labels = np.array([int(i) for i in f])
+    f.close()
 
     # merge the cnn features and hand-craft features
     train_features = np.concatenate([svm_train_predictions, cnn_train_predictions], axis=1)
@@ -539,11 +626,11 @@ def svm_stage_2_combine_3(cnn_train_predictions='resnet50_train_prediction.pkl',
     print('Optimization started.')
     estimator = SVR(kernel="linear", max_iter=20000)  # init svm
     selector = RFE(estimator, n_features_to_select=8, step=5)  # init rfe
-    selector = selector.fit(train_features, train_labels)  # optimize
+    selector = selector.fit(train_features, list_train_labels)  # optimize
     print('Optimization ended.')
     test_predicted = selector.predict(test_features)  # predict the output on test set
 
-    precision_results = precision(test_labels, test_predicted)
-    recall_results = recall(test_labels, test_predicted)
+    precision_results = precision(list_test_labels, test_predicted)
+    recall_results = recall(list_test_labels, test_predicted)
 
     print('Precision: {} - Recall: {}'.format(precision_results, recall_results))
